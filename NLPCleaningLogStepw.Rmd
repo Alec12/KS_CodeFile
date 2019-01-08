@@ -1,0 +1,121 @@
+---
+title: "142 NLP Exploration"
+author: "Lillian Dong"
+date: "12/2/2018"
+output: html_document
+---
+```{r}
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(MASS)
+library(caTools)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(caret)
+library(lubridate)
+
+```
+
+```{r}
+library(readr)
+#preliminary exploration with just one dataset. 
+#nlp_data <- read.csv("merged data 50000.csv", stringsAsFactors = FALSE)
+
+mypath <- "/Users/zijingxu/Desktop/IEOR 142/Project/IEOR 142" #put your path here
+filenames=list.files(path=mypath, full.names=TRUE)
+datalist = lapply(filenames, function(x){read.csv(file=x,header=T)})
+nlp_data=bind_rows(datalist)
+
+```
+
+```{R}
+#filter for US only
+nlp_data = nlp_data %>% 
+  filter(country == 'US')
+
+#filter to above 2012
+nlp_data = nlp_data %>%
+    filter(nlp_data$launched >= as.Date("2012-01-01"))
+
+#keep only successful and failed kickstarters
+nlp_data = nlp_data %>% filter(state == 'successful' | state == 'failed')
+
+nlp_data$Success = as.factor(as.numeric(nlp_data$state == 'successful'))
+nlp_data$launched = as.Date(nlp_data$launched)
+nlp_data <- nlp_data %>% mutate(deadline = ymd(deadline))
+#nlp_data$category = as.factor(nlp_data$category) Dom: I commented this out since we're gonna end up with 150~ subcategories, tahts insaaaaneee
+nlp_data$main_category = as.factor(nlp_data$main_category)
+nlp_data$staff_pick = as.factor(as.numeric(nlp_data$staff_pick == 'True'))
+
+table(nlp_data$Success)
+
+
+#get blurb and names
+only_name = nlp_data$name
+only_blurb = nlp_data$blurb
+
+# mostly not Successful (3150/(3150+1850))
+corpusN = Corpus(VectorSource(only_name))
+corpusB = Corpus(VectorSource(only_blurb))
+
+corpusN = tm_map(corpusN, tolower)
+corpusN = tm_map(corpusN, removePunctuation)
+corpusB = tm_map(corpusB, tolower)
+corpusB = tm_map(corpusB, removePunctuation)
+
+corpusN = tm_map(corpusN, removeWords, stopwords("english"))
+corpusN = tm_map(corpusN, stemDocument)
+strwrap(corpusN[[1]])
+corpusB = tm_map(corpusB, removeWords, stopwords("english"))
+corpusB = tm_map(corpusB, stemDocument)
+strwrap(corpusB[[1]])
+
+frequenciesN = DocumentTermMatrix(corpusN)
+frequenciesB = DocumentTermMatrix(corpusB)
+frequenciesN
+frequenciesB
+
+findFreqTerms(frequenciesN,lowfreq = 50)
+sparseN = removeSparseTerms(frequenciesN,0.99)
+sparseN
+
+findFreqTerms(frequenciesB, lowfreq=50)
+sparseB = removeSparseTerms(frequenciesB, 0.99)
+sparseB
+
+# Step 8: Create data frame from the document-term matrix
+nlpN = as.data.frame(as.matrix(sparseN))
+nlpB = as.data.frame(as.matrix(sparseB))
+
+# We have some variable names that start with a number, 
+colnames(nlpN) = make.names(paste0("n.",colnames(nlpN)))
+colnames(nlpB) = make.names(paste0("b.",colnames(nlpB)))
+
+head(nlpN)
+head(nlpB)
+
+#Join
+BlurbTM = cbind(nlpN,nlpB)
+
+#append
+BlurbTM$Success = nlp_data$Success
+BlurbTM$launched = nlp_data$launched
+BlurbTM
+
+#remove features not used for modeling
+nlp_data$usd_pledged_real <- NULL
+nlp_data$country <- NULL
+nlp_data$usd.pledged <- NULL
+nlp_data$usd_goal_real <- NULL
+nlp_data$blurb <- NULL
+nlp_data$name <- NULL
+nlp_data$X <- NULL
+nlp_data$currency <- NULL
+nlp_data$state <- NULL
+
+write.csv(BlurbTM, file = 'blurbs_50000.csv')
+```
+

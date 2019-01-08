@@ -1,0 +1,71 @@
+---
+title: "IEOR142Project_Log"
+author: "Dominic Hugo"
+date: "December 3, 2018"
+output: pdf_document
+---
+
+```{r}
+tableAccuracy <- function(test, pred) {
+  t = table(test, pred)
+  a = sum(diag(t))/length(test)
+  return(a)
+}
+
+wordcloud(corpusN, max.words = 200, random.order = FALSE, rot.per = .1, colors = brewer.pal(8, "Dark2"))
+wordcloud(corpusB, max.words = 200, random.order = FALSE, rot.per = .1, colors = brewer.pal(8, "Dark2"))
+```
+
+```{r}
+#filter by date?
+
+set.seed(123)  # So we get the same results
+
+#filter main dataset
+nlpTrain <- nlp_data %>% filter(year(launched) < 2016)
+nlpTest <- nlp_data %>% filter(year(launched) >= 2016)
+
+#Filter NLP dataset
+BlurbsTrain <- BlurbTM %>% filter(year(launched) < 2016)
+BlurbsTest <- BlurbTM %>% filter(year(launched) >= 2016)
+```
+
+```{r}
+logMod <- glm(Success ~ ., data = BlurbsTrain, family="binomial")
+summary(logMod)
+
+predTrain <- predict(logMod, newdata=BlurbsTrain, type="response")
+predTest <- predict(logMod, newdata=BlurbsTest, type="response")
+
+# Summary of model probabilities on the test set.
+summary(predTest)
+
+# Confusion matrix based on decision tree threshold 
+logT <- table(BlurbsTest$Success, predTest > 0.5)
+logAcc <- sum(diag(logT))/ sum(logT)
+
+logT
+logAcc
+```
+
+This is the code to combine NLP results with main dataset
+```{r}
+# #Append NLP results to main dataset
+# nlpTrain$nlp = predTrain
+# nlpTest$nlp = predTest
+```
+
+```{r}
+#Stepwise regression w/ NLP
+qStepLog = step(logMod, direction = "backward", steps = 300)
+summary(qStepLog)
+length(qStepLog$coefficients)
+
+PredictStepLog = predict(qStepLog, newdata = BlurbsTest, type = "response")
+stepT <- table(BlurbsTest$Success, PredictStepLog > 0.5)
+stepAcc <- sum(diag(stepT))/ sum(stepT)
+tableAccuracy(BlurbsTest$Success, PredictStepLog > 0.5)
+
+stepT
+stepAcc
+```

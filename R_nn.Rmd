@@ -1,0 +1,254 @@
+---
+title: "142 NLP Exploration"
+author: "Alec Naidoo"
+date: "12/3/2018"
+output: html_document
+---
+```{r}
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(MASS)
+library(caTools)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(caret)
+library(tidyverse)
+library(yardstick) 
+library(tictoc) 
+```
+
+
+```{r}
+mypath <- "~/Documents/IEOR 142/142 Final Project/IEOR 142 data files" 
+filenames=list.files(path=mypath, full.names=TRUE)
+datalist = lapply(filenames, function(x){read.csv(file=x,header=T)})
+first2=bind_rows(datalist)
+
+```
+
+```{r}
+library(readr)
+
+#filter for US only
+nlp_data = first2 %>% 
+  filter(country == 'US')
+
+#get blurb and names
+only_name = nlp_data$name
+only_blurb = nlp_data$blurb
+
+#keep only successful and failed kickstarters
+nlp_data$success = as.factor(as.numeric(nlp_data$state == 'successful'))
+table(nlp_data$success)
+
+# sparsed at 92%
+corpusN = Corpus(VectorSource(only_name))
+corpusB = Corpus(VectorSource(only_blurb))
+
+corpusN = tm_map(corpusN, tolower)
+corpusN = tm_map(corpusN, removePunctuation)
+corpusB = tm_map(corpusB, tolower)
+corpusB = tm_map(corpusB, removePunctuation)
+
+corpusN = tm_map(corpusN, removeWords, stopwords("english"))
+corpusN = tm_map(corpusN, stemDocument)
+strwrap(corpusN[[1]])
+corpusB = tm_map(corpusB, removeWords, stopwords("english"))
+corpusB = tm_map(corpusB, stemDocument)
+strwrap(corpusB[[1]])
+
+frequenciesN = DocumentTermMatrix(corpusN)
+frequenciesB = DocumentTermMatrix(corpusB)
+frequenciesN
+frequenciesB
+
+findFreqTerms(frequenciesN,lowfreq = 50)
+sparseN = removeSparseTerms(frequenciesN,0.992)
+sparseN
+
+findFreqTerms(frequenciesB, lowfreq=50)
+sparseB = removeSparseTerms(frequenciesB, 0.992)
+sparseB
+
+# Step 8: Create data frame from the document-term matrix
+nlpN = as.data.frame(as.matrix(sparseN))
+nlpB = as.data.frame(as.matrix(sparseB))
+
+# We have some variable names that start with a number, 
+colnames(nlpN) = make.names(paste0("n.",colnames(nlpN)))
+colnames(nlpB) = make.names(paste0("b.",colnames(nlpB)))
+
+head(nlpN)
+head(nlpB)
+
+#Join
+BigTM = cbind(nlpN,nlpB)
+
+#append
+BigTM$success = nlp_data$success
+
+
+```
+
+# Build that shit
+
+Split the Data into train/test
+```{r}
+
+set.seed(123)  # So we get the same results
+spl = sample.split(BigTM$success, SplitRatio = 0.7)
+
+Train = BigTM %>% filter(spl == TRUE)
+Test = BigTM %>% filter(spl == FALSE)
+```
+
+Function to compute accuracy of a classification model
+```{r}
+tableAccuracy <- function(test, pred) {
+  t = table(test, pred)
+  a = sum(diag(t))/length(test)
+  return(a)
+}
+```
+
+Baseline Models
+```{r}
+table(Train$success)
+121138/(121138+72533) #0.6254834
+
+table(Test$success)
+51917/(51917+31085) #0.625491
+```
+***
+Neural Net Model
+
+```{r}
+library(keras)
+use_session_with_seed(564) 
+
+# Prep for Keras
+trainX <- model.matrix(success ~ . , data = Train)
+trainX = trainX[,2:267]
+trainY <- model.matrix(~ success -1, data = Train)
+
+testX <- model.matrix(success ~ . , data = Test)
+testX = testX[,2:267]
+testY <- model.matrix(~ success -1, data = Test)
+```
+
+Neural Net Model 2: Single Hidden Layer Model ReLU
+```{r}
+
+nn_mod_2 <- keras_model_sequential() 
+nn_mod_2 %>%
+  layer_dense(units = 266, activation = "relu", input_shape = c(266)) %>%
+  layer_dense(units = 2, activation = "softmax")
+summary(nn_mod_2)
+
+nn_mod_2 %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+tic("Neural Net 2:")
+training_history <- nn_mod_2 %>% 
+  fit(trainX, trainY, 
+      epochs = 5, validation_split = 0.2)
+toc()
+
+# evaluate
+nn_mod_2 %>% evaluate(trainX, trainY)
+nn_mod_2 %>% evaluate(testX, testY)
+
+
+```
+
+
+Neural Net Model 5: 4 Hidden Layer Model, sigmoid
+```{r}
+nn_mod_5 <- keras_model_sequential() 
+nn_mod_5 %>%
+  layer_dense(units = 266, activation = "sigmoid", input_shape = c(266)) %>%
+  layer_dense(units = 30, activation = "sigmoid") %>%
+  layer_dense(units = 5, activation = "sigmoid") %>%
+  layer_dense(units = 5, activation = "sigmoid") %>%
+  layer_dense(units = 2, activation = "softmax")
+summary(nn_mod_5)
+
+nn_mod_5 %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+tic("Neural Net 5:")
+training_history <- nn_mod_5 %>% 
+  fit(trainX, trainY, 
+      epochs = 15, validation_split = 0.2)
+toc()
+
+# evaluate
+nn_mod_5 %>% evaluate(trainX, trainY)
+nn_mod_5 %>% evaluate(testX, testY)
+
+
+
+
+```
+
+Neural Net Model 14: 1 Hidden Layer Model, 30 units,  relu
+```{r}
+nn_mod_14 <- keras_model_sequential() 
+nn_mod_14 %>%
+  layer_dense(units = 30, activation = "relu", input_shape = c(266)) %>%
+  layer_dense(units = 2, activation = "softmax")
+summary(nn_mod_14)
+
+nn_mod_14 %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+tic("Neural Net 14:")
+training_history <- nn_mod_14 %>% 
+  fit(trainX, trainY, 
+      epochs = 10, validation_split = 0.2)
+toc()
+
+# evaluate
+nn_mod_14 %>% evaluate(trainX, trainY)
+nn_mod_14 %>% evaluate(testX, testY)
+
+
+```
+Neural Net Model 16: 1 Hidden Layer Model, 16 units,  relu
+```{r}
+nn_mod_16 <- keras_model_sequential() 
+nn_mod_16 %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(266)) %>%
+  layer_dense(units = 2, activation = "softmax")
+summary(nn_mod_16)
+
+nn_mod_16 %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+tic("Neural Net 16:")
+training_history <- nn_mod_16 %>% 
+  fit(trainX, trainY, 
+      epochs = 10, validation_split = 0.2)
+toc()
+
+# evaluate
+nn_mod_16 %>% evaluate(trainX, trainY)
+nn_mod_16 %>% evaluate(testX, testY)
+
+
+```

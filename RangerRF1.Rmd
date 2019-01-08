@@ -1,0 +1,101 @@
+---
+title: "IEOR 142 Project Test Model - Random Forest"
+author: "Jim Xu, 26307792"
+date: "12/3/2018"
+output: html_document
+---
+```{r}
+library(softImpute)
+library(randomForest)
+library(ranger)
+library(dplyr)
+library(tidyverse)
+library(reshape2)
+library(caret)
+library(ggplot2)
+library(GGally)
+library(caTools)
+library(ROCR)
+library(MASS)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(MASS)
+library(caTools)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(caret)
+```
+
+```{r}
+BlurbTM2$Success = nlp_data$Success
+
+set.seed(123)
+#Filter NLP dataset
+BlurbsTrain <- BlurbTM2 %>% filter(year(launched) < 2016)
+BlurbsTest <- BlurbTM2 %>% filter(year(launched) >= 2016)
+
+OSR2 <- function(predictions, test, train) {
+  SSE <- sum((test - predictions)^2)
+  SST <- sum((test - mean(train))^2)
+  r2 <- 1 - SSE/SST
+  return(r2)
+  }
+```
+
+```{r}
+set.seed(311)
+train.rf = train(Success ~ .,
+                 data = BlurbsTrain,
+                 method = "ranger",
+                 tuneGrid = expand.grid(.mtry = 1:20, .splitrule = "gini", .min.node.size = 10),
+                 trControl = trainControl(method = "cv", number = 5, verboseIter = TRUE))
+train.rf
+train.rf$results
+
+ggplot(train.rf$results, aes(x = mtry, y = Accuracy)) + geom_point(size = 2) + geom_line() + 
+  ylab("CV Accuracy") + theme_bw() + 
+  theme(axis.title=element_text(size=18), axis.text=element_text(size=18))
+
+mod.rf = train.rf$finalModel
+predict.rf = predict(mod.rf, data = BlurbsTest)$predictions
+table(BlurbsTest$Success, predict.rf)
+tableAccuracy(BlurbsTest$Success, predict.rf)
+
+mean(abs(predict.rf - BlurbsTest$Success))/4
+sqrt(mean((predict.rf - BlurbsTest$Success)^2))/4
+OSR2(predict.rf, BlurbsTrain$Success, BlurbsTest$SUccess)
+
+```
+
+```{r}
+BlurbsTrain$StaffPick <- ifelse(BlurbsTrain$staff_pick == 'FALSE', 0, 1) 
+BlurbsTrain$Webseries <- ifelse(BlurbsTrain$category == 'Webseries', 0, 1) 
+BlurbsTrain$Fiction <- ifelse(BlurbsTrain$category == 'Fiction', 0, 1) 
+BlurbsTrain$PlayingCards <- ifelse(BlurbsTrain$category == 'Playing Cards', 0, 1) 
+BlurbsTrain$Tabletop <- ifelse(BlurbsTrain$category == 'Tabletop Games', 0, 1) 
+BlurbsTrain$Periodicals <- ifelse(BlurbsTrain$category == 'Periodicals', 0, 1) 
+BlurbsTrain$Music <- ifelse(BlurbsTrain$category == 'Music', 0, 1) 
+BlurbsTrain$Design <- ifelse(BlurbsTrain$category == 'Design', 0, 1) 
+BlurbsTrain$FilmVideo <- ifelse(BlurbsTrain$category == 'Film & Video', 0, 1) 
+BlurbsTrain$FineArt <- ifelse(BlurbsTrain$category == 'Fine Art', 0, 1) 
+BlurbsTrain$VideoGame <- ifelse(BlurbsTrain$category == 'Video Games', 0, 1)
+BlurbsTrain$SmallBatch <- ifelse(BlurbsTrain$category == 'Small Batch', 0, 1) 
+BlurbsTrain$Apps <- ifelse(BlurbsTrain$category == 'Apps', 0, 1) 
+BlurbsTrain$Food <- ifelse(BlurbsTrain$category == 'Food', 0, 1) 
+BlurbsTrain$Nonfiction <- ifelse(BlurbsTrain$category == 'Nonfiction', 0, 1) 
+BlurbsTrain$Web <- ifelse(BlurbsTrain$category == 'Web', 0, 1) 
+
+
+```
+
+```{r}
+preds.rf <- predict(train.rf, data = BlurbsTest)
+preds.rf <- preds.rf$predictions
+mean(abs(preds.rf - BlurbsTest$Success))/4
+sqrt(mean((preds.rf - BlurbsTest$Success)^2))/4
+OSR2(preds.rf, BlurbsTrain$Success, BlurbsTest$SUccess)
+```
+
